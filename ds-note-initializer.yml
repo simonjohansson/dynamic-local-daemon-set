@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-initializer
+  namespace: disk-test
+  labels:
+    app: default-init
+spec:
+  selector:
+    matchLabels:
+      app: default-init
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        name: node-initializer
+        app: default-init
+    spec:
+      volumes:
+        - name: root-mount
+          hostPath:
+            path: /
+        - name: entrypoint
+          configMap:
+            name: entrypoint
+            defaultMode: 0744
+      initContainers:
+        - image: kubectl
+          name: node-initializer
+          command: ["/scripts/entrypoint.sh"]
+          env:
+            - name: ROOT_MOUNT_DIR
+              value: /root
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: root-mount
+              mountPath: /root
+            - name: entrypoint
+              mountPath: /scripts
+      containers:
+        - image: "gcr.io/google-containers/pause:2.0"
+          name: pause
+#      affinity:
+#        nodeAffinity:
+#          requiredDuringSchedulingIgnoredDuringExecution:
+#            nodeSelectorTerms:
+#              - matchExpressions:
+#                  - key: cloud.google.com/gke-nodepool
+#                    operator: In
+#                    values:
+#                      - actions-blue

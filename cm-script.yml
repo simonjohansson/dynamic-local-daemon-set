@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: entrypoint
+  namespace: disk-test
+  labels:
+    app: default-init
+data:
+  entrypoint.sh: |
+    #!/usr/bin/env bash
+
+    set -uo pipefail
+
+    echo "Running on $NODE_NAME"
+
+    ROOT_MOUNT_DIR="${ROOT_MOUNT_DIR:-/root}"
+    chroot "$ROOT_MOUNT_DIR" /bin/bash <<'EOF'
+      for i in 1 2 3 4; do
+        LOCAL_PATH=/tmp/disk$i
+
+        if [ -d "$LOCAL_PATH" ]; then
+          echo $LOCAL_PATH already exists
+        else
+          echo Creating $LOCAL_PATH
+          mkdir -p $LOCAL_PATH
+        fi
+      done
+    EOF
+
+    for i in 1 2 3 4; do
+      LOCAL_PATH=/tmp/disk$i
+      PV_NAME=$NODE_NAME-$i
+
+      kubectl get pv $PV_NAME &> /dev/null
+      if [ $? -eq 0 ]; then
+        echo PV $PV_NAME is already configured
+      else
+        echo Creating $PV_NAME with path $LOCAL_PATH
+        cat <<EOF>> $PV_NAME.yml
+        apiVersion: v1
+        kind: PersistentVolume
+        metadata:
+          name: $PV_NAME
+        spec:
+          capacity:
+            storage: 100Gi
+          volumeMode: Filesystem
+          accessModes:
+          - ReadWriteOnce
+          persistentVolumeReclaimPolicy: Delete
+          storageClassName: local-ssd
+          local:
+            path: $LOCAL_PATH
+          nodeAffinity:
+            required:
+              nodeSelectorTerms:
+              - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values:
+                  - $NODE_NAME
+    EOF
+        kubectl apply -f $PV_NAME.yml
+      fi
+    done
+
